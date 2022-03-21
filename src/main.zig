@@ -4,26 +4,33 @@ const fs = std.fs;
 const mem = std.mem;
 const log = std.log;
 const File = fs.File;
+const assert = std.debug.assert;
 
 var debug: u8 = 1;
 var events: File = undefined;
 
-// cat /proc/bus/input/devices
 pub fn main() anyerror!void {
     const device = try readDevice();
-    var pathbuf: [255]u8 = undefined;
-    const path = try std.fmt.bufPrint(&pathbuf, "/dev/input/{s}", .{device});
-    if (debug > 0) {
-        log.info("Events: {s}", .{path});
-    }
-    events = try fs.openFileAbsolute(path, .{ .read = true });
+    events = try openEvents(device);
     log.info("Read input events...", .{});
     try readEvent();
     events.close();
 }
 
-test "basic test" {
-    try fs.accessAbsolute("/dev/input/event23", .{ .read = true });
+test "events file test" {
+    const d = try readDevice();
+    const e = try openEvents(d);
+    assert(@TypeOf(e) == fs.File);
+    e.close();
+}
+
+fn openEvents(device: []const u8) anyerror!fs.File {
+    var pathbuf: [255]u8 = undefined;
+    const path = try std.fmt.bufPrint(&pathbuf, "/dev/input/{s}", .{device});
+    if (debug > 0) {
+        log.info("Events: {s}", .{path});
+    }
+    return try fs.openFileAbsolute(path, .{ .read = true });
 }
 
 const Type = enum(u16) {EV_KEY = 1, EV_ABS = 3};
@@ -52,7 +59,6 @@ fn readEvent() anyerror!void {
         }
     }
 }
-
 
 const ExtractPropertyError = error{
     NoStartIndex,
