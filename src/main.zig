@@ -5,6 +5,7 @@ const testing = std.testing;
 const fs = std.fs;
 const mem = std.mem;
 const log = std.log;
+const math = std.math;
 const File = fs.File;
 const assert = std.debug.assert;
 const expect = std.testing.expect;
@@ -66,6 +67,8 @@ const Code = enum(u16) {ABS_X = 0, ABS_Y = 1, ABS_PRESSURE = 24,
 pub const Touch = struct {
     tv_sec: u64,
     tv_usec: u64,
+    id: ?i32,
+    slot: ?i32,
     pressure: ?i32,
     x: ?i32,
     y: ?i32,
@@ -79,73 +82,108 @@ pub const InputEvent = extern struct {
     value: i32
 };
 
+inline fn isSlot(event: InputEvent) bool {
+    return event.code == @enumToInt(Code.ABS_MT_SLOT);
+}
+inline fn isPressure(event: InputEvent) bool {
+    return event.code == @enumToInt(Code.ABS_MT_PRESSURE);
+}
+inline fn isMtX(event: InputEvent) bool {
+    return event.code == @enumToInt(Code.ABS_MT_POSITION_X);
+}
+inline fn isMtY(event: InputEvent) bool {
+    return event.code == @enumToInt(Code.ABS_MT_POSITION_Y);
+}
+inline fn isId(event: InputEvent) bool {
+    return event.code == @enumToInt(Code.ABS_MT_TRACKING_ID);
+}
+
+fn isSyn(event: InputEvent) bool {
+    return event.itype == 0 and event.code == 0 and event.value == 0;
+}
+
+fn zeroPressure(touch: Touch) bool {
+    return touch.pressure != null and touch.pressure.? == 0;
+}
+
+fn createTouch(event: InputEvent) ?Touch {
+    if (isPressure(event)) {
+        return Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec,
+            .id = null, .slot = null,
+            .pressure = event.value, .x = null, .y = null};
+    }
+    if (isMtX(event)) {
+        return Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec, 
+            .id = null, .slot = null,
+            .pressure = null, .x = event.value, .y = null};
+    }
+    if (isMtY(event)) {
+        return Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec, 
+            .id = null, .slot = null,
+            .pressure = null, .x = null, .y= event.value};
+    }
+    if (isSlot(event)) {
+        return Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec,
+            .id = null, .slot = event.value,
+            .pressure = null, .x = null, .y = null};
+    }
+    return null;
+}
+fn updateTouch(event: InputEvent, tch: Touch) Touch {
+    var t = tch;
+    if (isPressure(event)) {
+        t.pressure = event.value;
+    }
+    if (isMtX(event)) {
+        t.x = event.value;
+    }
+    if (isMtY(event)) {
+        t.y = event.value;
+    }
+    if (isId(event)) {
+        t.id = event.value;
+    }
+    if (isSlot(event)) {
+        t.slot = event.value;
+    }
+    return t;
+}
+
+fn toColumn(x: i32) usize {
+    return @floatToInt(usize, (@intToFloat(f32, x) + 3678.0) / 700.0);
+}
+fn toX(x: i32) usize {
+    return @floatToInt(usize, (@intToFloat(f32, x) + 3678.0) / 50.0);
+}
+fn toY(y: i32) usize {
+    return @floatToInt(usize, (@intToFloat(f32, y) + 2478.0) / 200.0);
+}
+
 const start_y:usize = 13;
-var touches = [12]?Touch{null, null, null, null, null, null, null, null, null, null, null, null};
+var touches = [15]?Touch{null, null, null, null, null, null, null, null, null, null, null, null, null, null, null};
 fn readEvent() anyerror!void {
-    //var row: u8 = start_y;
-    var touch: ?Touch = null;
-    var slot:?usize = null;
+    var column:?usize = null;
     while (true) {
         var event = try events.reader().readStruct(InputEvent);
-        if (event.code == @enumToInt(Code.ABS_MT_PRESSURE)) {
-            if (touch == null) {
-                touch = Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec, 
-                    .pressure = event.value, .x = null, .y = null};
+        if (isMtX(event)) {
+            column = toColumn(event.value);
+        }
+        if (column != null) {
+            const col = column.?;
+            if (touches[col] == null) {
+                touches[col] = createTouch(event);
             } else {
-                touch.?.pressure = event.value;
+                touches[col] = updateTouch(event, touches[col].?);
             }
-        }
-        if (event.code == @enumToInt(Code.ABS_MT_POSITION_X)) {
-            if (touch == null) {
-                touch = Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec, 
-                    .pressure = null, .x = event.value, .y = null};
-            } else {
-                touch.?.x = event.value;
-            }
-        }
-        if (event.code == @enumToInt(Code.ABS_MT_POSITION_Y)) {
-            if (touch == null) {
-                touch = Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec, 
-                    .pressure = null, .x = null, .y= event.value};
-            } else {
-                touch.?.y = event.value;
-            }
-        }
-        if (event.code == @enumToInt(Code.ABS_MT_SLOT)) {
-            slot = @intCast(usize, event.value);
-            if (touch == null) {
-                touch = Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec, .pressure = null, .x = null, .y = null};
-            }
-        }
-        if (event.itype == 0 and event.code == 0 and event.value == 0) {
-            //row = start_y;
-            if (touch != null) {
+            if (isSyn(event) and touches[col] != null and zeroPressure(touches[col].?)) {
                 try clear();
-                if (slot != null) {
-                    touches[slot.?] = touch;
-                    if (touch.?.x != null and touch.?.y != null) {
-                        const x = @divTrunc(@intCast(usize, touch.?.x.? + 3678), 50);
-                        const y = @divTrunc(@intCast(usize, touch.?.y.? + 2478), 150);
-                        try term.writeAt(x, y, "{d}", .{slot});
-                    }
-                    // try term.writeAt(3, slot.? + 1, "{d}.{d} id:{d} x:{d} y:{d}    ", 
-                    //     .{touch.?.tv_sec, touch.?.tv_usec, touch.?.id, touch.?.x, touch.?.y});
-                } else {
-                    if (touch.?.x != null and touch.?.y != null) {
-                        const x = @divTrunc(@intCast(usize, touch.?.x.? + 3678), 50);
-                        const y = @divTrunc(@intCast(usize, touch.?.y.? + 2478), 150);
-                        try term.writeAt(x, y, "o", .{});
-                        // try term.writeAt(20, 1, "s {d}.{d} x:{d} y:{d}    ", 
-                        //     .{touch.?.tv_sec, touch.?.tv_usec, touch.?.x, touch.?.y});
-                    }
-                }
+                touches[col] = null;
             }
-            touch = null;
-            slot = null;
-        // } else {
-        //     try term.writeAt(1, row, "event: time {d}.{d}, type {d}, code {d}, value {d}", 
-        //         .{event.tv_sec, event.tv_usec, event.itype, event.code, event.value});
-        //     row += 1;
+            if (touches[col] != null and touches[col].?.x != null and touches[col].?.y != null) {
+                const x = toX(touches[col].?.x.?);
+                const y = toY(touches[col].?.y.?);
+                try term.writeAt(x, y, "{d}", .{touches[col].?.slot});
+            }
         }
     }
 }
