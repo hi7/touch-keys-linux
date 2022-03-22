@@ -1,20 +1,39 @@
 const std = @import("std");
+const signal = @import("signal.zig");
+const term = @import("term.zig");
 const testing = std.testing;
 const fs = std.fs;
 const mem = std.mem;
 const log = std.log;
 const File = fs.File;
 const assert = std.debug.assert;
+const expect = std.testing.expect;
 
-var debug: u8 = 1;
+var debug: u8 = 0;
 var events: File = undefined;
 
 pub fn main() anyerror!void {
+    signal.listenFor(std.os.linux.SIG.INT, handle_sig);
+    try term.write(term.CURSOR_HIDE);
+    try clear();
+
     const device = try readDevice();
     events = try openEvents(device);
-    log.info("Read input events...", .{});
+    defer events.close();
+    log.info("Touch trackpad", .{});
     try readEvent();
+}
+
+fn handle_sig() void {
     events.close();
+    term.write(term.CURSOR_SHOW) catch @panic("Can not show cursor!");
+    clear() catch @panic("Can not clear screen!");
+    std.os.exit(0);
+}
+
+fn clear() anyerror!void {
+    try term.write(term.CLEAR_SCREEN);
+    try term.write(term.CURSOR_HOME);
 }
 
 test "events file test" {
@@ -25,37 +44,108 @@ test "events file test" {
 }
 
 fn openEvents(device: []const u8) anyerror!fs.File {
-    var pathbuf: [255]u8 = undefined;
-    const path = try std.fmt.bufPrint(&pathbuf, "/dev/input/{s}", .{device});
+    var buf: [255]u8 = undefined;
+    const path = try std.fmt.bufPrint(&buf, "/dev/input/{s}", .{device});
     if (debug > 0) {
         log.info("Events: {s}", .{path});
     }
     return try fs.openFileAbsolute(path, .{ .read = true });
 }
 
-const Type = enum(u16) {EV_KEY = 1, EV_ABS = 3};
+const Type = enum(u16) {EV_SYN = 0, EV_KEY = 1, EV_ABS = 3};
 const Code = enum(u16) {ABS_X = 0, ABS_Y = 1, ABS_PRESSURE = 24, 
     ABS_MT_SLOT = 47, ABS_MT_TOUCH_MAJOR = 48, ABS_MT_TOUCH_MINOR = 49, 
-    ABS_MT_POSITION_X = 53, ABS_MT_POSITION_Y = 54, ABS_MT_TRACKING_ID = 57, ABS_MT_PRESSURE = 58,
-    BTN_TOOL_FINGER = 325, BTN_TOUCH = 330
+    ABS_MT_ORIENTATION = 52, ABS_MT_POSITION_X = 53, ABS_MT_POSITION_Y = 54, 
+    ABS_MT_TRACKING_ID = 57, ABS_MT_PRESSURE = 58,
+    BTN_LEFT = 272,
+    BTN_TOOL_FINGER = 325, BTN_TOOL_QUITTAP = 328, BTN_TOUCH = 330, 
+    BTN_TOOL_DOUBLETAP = 333, BTN_TOOL_TRIPLETAP = 334, BTN_TOOL_QUADTAP = 335, 
 };
-// ABS_MT_SLOT => multi events finger {value}
+// ABS_MT_SLOT => multi touch finger {value}
+
+pub const Touch = struct {
+    tv_sec: u64,
+    tv_usec: u64,
+    pressure: ?i32,
+    x: ?i32,
+    y: ?i32,
+};
 
 pub const InputEvent = extern struct {
     tv_sec: u64,
     tv_usec: u64,
-    type: u16,
+    itype: u16,
     code: u16,
     value: i32
 };
 
+const start_y:usize = 13;
+var touches = [12]?Touch{null, null, null, null, null, null, null, null, null, null, null, null};
 fn readEvent() anyerror!void {
+    //var row: u8 = start_y;
+    var touch: ?Touch = null;
+    var slot:?usize = null;
     while (true) {
         var event = try events.reader().readStruct(InputEvent);
-        if (event.type == 0 and event.code == 0 and event.value == 0) {
-            log.info("event: time {d}.{d}, SYN_REPORT", .{event.tv_sec, event.tv_usec});
-        } else {
-            log.info("event: time {d}.{d}, type {d}, code {d}, value {d}", .{event.tv_sec, event.tv_usec, event.type, event.code, event.value});
+        if (event.code == @enumToInt(Code.ABS_MT_PRESSURE)) {
+            if (touch == null) {
+                touch = Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec, 
+                    .pressure = event.value, .x = null, .y = null};
+            } else {
+                touch.?.pressure = event.value;
+            }
+        }
+        if (event.code == @enumToInt(Code.ABS_MT_POSITION_X)) {
+            if (touch == null) {
+                touch = Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec, 
+                    .pressure = null, .x = event.value, .y = null};
+            } else {
+                touch.?.x = event.value;
+            }
+        }
+        if (event.code == @enumToInt(Code.ABS_MT_POSITION_Y)) {
+            if (touch == null) {
+                touch = Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec, 
+                    .pressure = null, .x = null, .y= event.value};
+            } else {
+                touch.?.y = event.value;
+            }
+        }
+        if (event.code == @enumToInt(Code.ABS_MT_SLOT)) {
+            slot = @intCast(usize, event.value);
+            if (touch == null) {
+                touch = Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec, .pressure = null, .x = null, .y = null};
+            }
+        }
+        if (event.itype == 0 and event.code == 0 and event.value == 0) {
+            //row = start_y;
+            if (touch != null) {
+                try clear();
+                if (slot != null) {
+                    touches[slot.?] = touch;
+                    if (touch.?.x != null and touch.?.y != null) {
+                        const x = @divTrunc(@intCast(usize, touch.?.x.? + 3678), 50);
+                        const y = @divTrunc(@intCast(usize, touch.?.y.? + 2478), 150);
+                        try term.writeAt(x, y, "{d}", .{slot});
+                    }
+                    // try term.writeAt(3, slot.? + 1, "{d}.{d} id:{d} x:{d} y:{d}    ", 
+                    //     .{touch.?.tv_sec, touch.?.tv_usec, touch.?.id, touch.?.x, touch.?.y});
+                } else {
+                    if (touch.?.x != null and touch.?.y != null) {
+                        const x = @divTrunc(@intCast(usize, touch.?.x.? + 3678), 50);
+                        const y = @divTrunc(@intCast(usize, touch.?.y.? + 2478), 150);
+                        try term.writeAt(x, y, "o", .{});
+                        // try term.writeAt(20, 1, "s {d}.{d} x:{d} y:{d}    ", 
+                        //     .{touch.?.tv_sec, touch.?.tv_usec, touch.?.x, touch.?.y});
+                    }
+                }
+            }
+            touch = null;
+            slot = null;
+        // } else {
+        //     try term.writeAt(1, row, "event: time {d}.{d}, type {d}, code {d}, value {d}", 
+        //         .{event.tv_sec, event.tv_usec, event.itype, event.code, event.value});
+        //     row += 1;
         }
     }
 }
