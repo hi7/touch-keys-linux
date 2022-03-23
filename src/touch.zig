@@ -130,10 +130,10 @@ fn toColumn(x: i32) usize {
     return @floatToInt(usize, (@intToFloat(f32, x) + 3678.0) / 700.0);
 }
 fn toX(x: i32) usize {
-    return @floatToInt(usize, (@intToFloat(f32, x) + 3678.0) / 80.0);
+    return @floatToInt(usize, (@intToFloat(f32, x) + 3678.0) / 60.0);
 }
 fn toY(y: i32) usize {
-    return @floatToInt(usize, (@intToFloat(f32, y) + 2478.0) / 600.0);
+    return @floatToInt(usize, (@intToFloat(f32, y) + 2478.0) / 500.0);
 }
 
 fn writeTouch(touch: Touch) anyerror!void {
@@ -200,7 +200,7 @@ fn trackEvent(e: InputEvent) anyerror!void {
 fn writeTouches() anyerror!void {
     for (touches) | touch | {
         if (touch != null and touch.?.x != null and touch.?.y != null) {
-            try term.writeAt(toX(touch.?.x.?), toY(touch.?.y.?), "O", .{});
+            try term.writeAt(toX(touch.?.x.?), toY(touch.?.y.?), "*", .{});
         }
     }
 }
