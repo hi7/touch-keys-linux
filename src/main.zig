@@ -18,7 +18,10 @@ pub fn main() anyerror!void {
     try term.write(term.CURSOR_HIDE);
     try clear();
 
-    const device = try readDevice();
+    const device = readDevice() catch | err | {
+        std.debug.print("{s}!\n", .{err});
+        return;
+    };
     events = try openEvents(device);
     defer events.close();
     log.info("Touch trackpad", .{});
@@ -97,6 +100,9 @@ inline fn isMtY(event: InputEvent) bool {
 inline fn isId(event: InputEvent) bool {
     return event.code == @enumToInt(Code.ABS_MT_TRACKING_ID);
 }
+inline fn noPressure(event: InputEvent) bool {
+    return event.code == @enumToInt(Code.ABS_MT_TRACKING_ID) and event.value == 0;
+}
 
 fn isSyn(event: InputEvent) bool {
     return event.itype == 0 and event.code == 0 and event.value == 0;
@@ -159,30 +165,57 @@ fn toY(y: i32) usize {
     return @floatToInt(usize, (@intToFloat(f32, y) + 2478.0) / 200.0);
 }
 
-const start_y:usize = 13;
+fn writeTouch(touch: Touch, column: usize) anyerror!void {
+    if (touch.x != null and touch.y != null) {
+        const x = toX(touch.x.?);
+        const y = toY(touch.y.?);
+        try term.writeAt(x, y, "{d}", .{column});
+    }
+}
+
+const start: usize = 1;
+var slot: usize = 0;
 var touches = [15]?Touch{null, null, null, null, null, null, null, null, null, null, null, null, null, null, null};
+inline fn ensureTouchExists(e: InputEvent) void {
+    if (touches[slot] == null) {
+        touches[slot] = createTouch(e);
+    }
+}
+
+fn trackEvent(e: InputEvent) anyerror!void {
+    if (isSlot(e)) {
+        slot = @intCast(usize, e.value);
+        ensureTouchExists(e);
+    }
+    if (isMtX(e)) {
+        ensureTouchExists(e);
+        touches[slot].?.x = e.value;
+    }
+    if (isMtY(e)) {
+        ensureTouchExists(e);
+        touches[slot].?.y = e.value;
+    }
+    if (isPressure(e)) {
+        if (e.value == 0) {
+            touches[slot] = null;
+        } else {
+            touches[slot].?.pressure = e.value;
+        }
+    }
+}
+
 fn readEvent() anyerror!void {
-    var column:?usize = null;
     while (true) {
         var event = try events.reader().readStruct(InputEvent);
-        if (isMtX(event)) {
-            column = toColumn(event.value);
-        }
-        if (column != null) {
-            const col = column.?;
-            if (touches[col] == null) {
-                touches[col] = createTouch(event);
-            } else {
-                touches[col] = updateTouch(event, touches[col].?);
-            }
-            if (isSyn(event) and touches[col] != null and zeroPressure(touches[col].?)) {
-                try clear();
-                touches[col] = null;
-            }
-            if (touches[col] != null and touches[col].?.x != null and touches[col].?.y != null) {
-                const x = toX(touches[col].?.x.?);
-                const y = toY(touches[col].?.y.?);
-                try term.writeAt(x, y, "{d}", .{touches[col].?.slot});
+        try trackEvent(event);
+        if (isSyn(event)) {
+            try clear();
+            for (touches) | touch | {
+                if (touch != null and touch.?.x != null and touch.?.y != null and 
+                    touch.?.slot != null and touch.?.pressure != null) {
+                    try term.writeAt(toX(touch.?.x.?), toY(touch.?.y.?), "{d}:{d}", 
+                        .{touch.?.slot.?, touch.?.pressure.?});
+                }
             }
         }
     }
@@ -255,6 +288,5 @@ fn readDevice() anyerror![]const u8 {
         }
         return extractWithMatchToEOL("event", devices_text, i.?);
     }
-    log.err("Trackpad not found!", .{});
     return error.DeviceNotFound;
 }
