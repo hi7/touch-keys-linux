@@ -2,6 +2,7 @@ const std = @import("std");
 const signal = @import("signal.zig");
 const term = @import("term.zig");
 const touch = @import("touch.zig");
+const keys = @import("keys.zig");
 const testing = std.testing;
 const fs = std.fs;
 const mem = std.mem;
@@ -22,7 +23,8 @@ pub fn main() anyerror!void {
     };
     touch.events = try touch.openEvents(device);
     defer touch.events.close();
-    log.info("Touch trackpad!", .{});
+    //log.info("Touch trackpad!", .{});
+    try keys.write();
     try touch.readEvents();
 }
 

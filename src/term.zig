@@ -44,7 +44,7 @@ pub fn write(data: []const u8) anyerror!void {
 }
 pub fn writeAt(x: usize, y: usize, comptime format: []const u8, args: anytype) anyerror!void {
     try setCursor(x, y);
-    var buf: [255]u8 = undefined;
+    var buf: [10240]u8 = undefined;
     const goto = try fmt.bufPrint(&buf, format, args);
     try write(goto);
 }
