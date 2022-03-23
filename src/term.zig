@@ -48,6 +48,10 @@ pub fn writeAt(x: usize, y: usize, comptime format: []const u8, args: anytype) a
     const goto = try fmt.bufPrint(&buf, format, args);
     try write(goto);
 }
+pub fn clear() anyerror!void {
+    try write(CLEAR_SCREEN);
+    try write(CURSOR_HOME);
+}
 
 var orig_mode: system.termios = undefined;
 /// timeout for read(): x/10 seconds, null means wait forever for input
