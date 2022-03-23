@@ -128,6 +128,11 @@ fn createTouch(event: InputEvent) ?Touch {
             .id = null, .slot = null,
             .pressure = null, .x = null, .y= event.value};
     }
+    if (isId(event)) {
+        return Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec,
+            .id = event.value, .slot = null,
+            .pressure = null, .x = null, .y = null};
+    }
     if (isSlot(event)) {
         return Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec,
             .id = null, .slot = event.value,
@@ -173,8 +178,44 @@ fn writeTouch(touch: Touch, column: usize) anyerror!void {
     }
 }
 
-const start: usize = 1;
+fn setX(event: InputEvent) void {
+    if (isMtX(event)) {
+        ensureTouchExists(event);
+        touches[slot].?.x = event.value;
+    }
+}
+fn setY(event: InputEvent) void {
+    if (isMtY(event)) {
+        ensureTouchExists(event);
+        touches[slot].?.y = event.value;
+    }
+}
+fn setId(event: InputEvent) void {
+    if (isId(event)) {
+        if (event.value == -1) {
+            touches[slot] = null;
+        } else {
+            ensureTouchExists(event);
+            touches[slot].?.id = event.value;
+        }
+    }
+}
 var slot: usize = 0;
+fn setSlot(event: InputEvent) void {
+    if (isSlot(event)) {
+        slot = @intCast(usize, event.value);
+        ensureTouchExists(event);
+        touches[slot].?.slot = event.value;
+    }
+}
+fn setPressure(event: InputEvent) void {
+    if (isPressure(event)) {
+        ensureTouchExists(event);
+        touches[slot].?.pressure = event.value;
+    }
+}
+
+const start: usize = 1;
 var touches = [15]?Touch{null, null, null, null, null, null, null, null, null, null, null, null, null, null, null};
 inline fn ensureTouchExists(e: InputEvent) void {
     if (touches[slot] == null) {
@@ -183,25 +224,11 @@ inline fn ensureTouchExists(e: InputEvent) void {
 }
 
 fn trackEvent(e: InputEvent) anyerror!void {
-    if (isSlot(e)) {
-        slot = @intCast(usize, e.value);
-        ensureTouchExists(e);
-    }
-    if (isMtX(e)) {
-        ensureTouchExists(e);
-        touches[slot].?.x = e.value;
-    }
-    if (isMtY(e)) {
-        ensureTouchExists(e);
-        touches[slot].?.y = e.value;
-    }
-    if (isPressure(e)) {
-        if (e.value == 0) {
-            touches[slot] = null;
-        } else {
-            touches[slot].?.pressure = e.value;
-        }
-    }
+    setSlot(e);
+    setX(e);
+    setY(e);
+    setId(e);
+    setPressure(e);
 }
 
 fn readEvent() anyerror!void {
@@ -212,9 +239,9 @@ fn readEvent() anyerror!void {
             try clear();
             for (touches) | touch | {
                 if (touch != null and touch.?.x != null and touch.?.y != null and 
-                    touch.?.slot != null and touch.?.pressure != null) {
+                    touch.?.slot != null and touch.?.id != null) {
                     try term.writeAt(toX(touch.?.x.?), toY(touch.?.y.?), "{d}:{d}", 
-                        .{touch.?.slot.?, touch.?.pressure.?});
+                        .{touch.?.slot.?, touch.?.id.?});
                 }
             }
         }
