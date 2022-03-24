@@ -221,6 +221,14 @@ fn abs(comptime T: type, a: T) T {
     return a;
 }
 
+fn eq(comptime T: type, a: T, b: T, eps: T) bool {
+    return a < b + eps and a > b - eps;
+}
+
+test "eq test" {
+    assert(eq(f32, 0.1, 0.09, 0.02) == true);
+}
+
 // TODO: use Point
 inline fn distance(t: Touch, f: Finger) f32 {
     const dx = abs(f32, t.x.? - f.x);
@@ -229,9 +237,11 @@ inline fn distance(t: Touch, f: Finger) f32 {
 }
 
 var finger = [5]Finger{
-    Finger{.x =  0.1, .y = 0.4, .dx = 0, .dy = 0}, Finger{.x =  0.3, .y = 0.4, .dx = 0, .dy = 0},
-    Finger{.x =  0.5, .y = 0.4, .dx = 0, .dy = 0}, Finger{.x =  0.7, .y = 0.4, .dx = 0, .dy = 0},
-    Finger{.x =  0.9, .y = 0.4, .dx = 0, .dy = 0}};
+    Finger{.x = keys.toNormalizedX( 1), .y = keys.toNormalizedY(4), .dx = 0, .dy = 0}, 
+    Finger{.x = keys.toNormalizedX( 4), .y = keys.toNormalizedY(4), .dx = 0, .dy = 0}, 
+    Finger{.x = keys.toNormalizedX( 7), .y = keys.toNormalizedY(4), .dx = 0, .dy = 0}, 
+    Finger{.x = keys.toNormalizedX(10), .y = keys.toNormalizedY(4), .dx = 0, .dy = 0}, 
+    Finger{.x = keys.toNormalizedX(13), .y = keys.toNormalizedY(4), .dx = 0, .dy = 0}};
 fn indexOfFingerNearestTo(t: Touch) usize {
     var dist: f32 = 8000.0;
     var index: usize = 0;
@@ -249,31 +259,32 @@ fn indexOfFingerNearestTo(t: Touch) usize {
 
 test "indexOfFingerNearestTo() test" {
     for (finger) | f, i | {
-        var t = Touch{.tv_sec = 1, .tv_usec = 2, .id = null, .slot = null, .pressure = null, .x = toX(f.col), .y = toY(f.row)};
+        var t = Touch{.tv_sec = 1, .tv_usec = 2, .id = null, .slot = null, 
+            .pressure = null, .x = f.x, .y = f.y};
         assert(indexOfFingerNearestTo(t) == i);
     }
 }
 
 fn updateFingers() void {
-    for (touches) | t | {
-        if (t != null and t.?.x != null and t.?.y != null) {
-            const i = indexOfFingerNearestTo(t.?);
+    for (touches) | touch | {
+        if (touch != null and touch.?.x != null and touch.?.y != null) {
+            const t = touch.?;
+            const i = indexOfFingerNearestTo(t);
             var f = finger[i];
-            f.dx = t.?.x.? - f.x;
-            f.dy = t.?.y.? - f.y;
+            f.dx = t.x.? - f.x;
+            f.dy = t.y.? - f.y;
             finger[i] = f;
         }
     }
 }
 
 test "updateFingers() test" {
-    //const stepX: i32 = 127; //7612 / 60 = 126.8666...
-    //const stepY: i32 = 10; // 5065 / 500 = 10.23
-    touches[0] = Touch{.tv_sec = 1, .tv_usec = 2, .id = null, .slot = null, .pressure = null, .x = toX(4)+60, .y = toY(4)-5};
+    touches[0] = Touch{.tv_sec = 1, .tv_usec = 2, .id = null, .slot = null, .pressure = null, 
+        .x = keys.toNormalizedX(5), .y = keys.toNormalizedX(4)};
     assert(indexOfFingerNearestTo(touches[0].?) == 1);
     updateFingers();
-    assert(finger[1].dx == -1);
-    assert(finger[1].dy == 1);
+    assert(eq(f32, finger[1].dx,  0.00952, 0.00005));
+    assert(eq(f32, finger[1].dy, -0.62857, 0.00005));
 }
 
 fn writeFinger() anyerror!void {

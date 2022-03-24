@@ -52,6 +52,13 @@ var de = [rows][cols]Key{
     }
 };
 
+pub fn toNormalizedX(column: usize) f32 {
+    return @intToFloat(f32, column) / @intToFloat(f32, width);
+}
+pub fn toNormalizedY(row: usize) f32 {
+    return @intToFloat(f32, row) / @intToFloat(f32, height);
+}
+
 pub fn toColumn(x: usize) usize {
     const dx = @divTrunc(x, 3) * 2; 
     return x * col_width + dx + 1;
