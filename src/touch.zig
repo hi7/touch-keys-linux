@@ -133,17 +133,11 @@ fn updateTouch(event: InputEvent, tch: Touch) Touch {
     return t;
 }
 
-// TODO: toSlot
-fn toColumn(x: i32) usize {
-    return @floatToInt(usize, (@intToFloat(f32, x) + 3678.0) / 700.0);
+fn toColumn(x: i32) u8 {
+    return @floatToInt(u8, (@intToFloat(f32, x) + 3678.0) / 60.0);
 }
-// TODO: toColumn
-fn toX(x: i32) usize {
-    return @floatToInt(usize, (@intToFloat(f32, x) + 3678.0) / 60.0);
-}
-// TODO: toRow
-fn toY(y: i32) usize {
-    return @floatToInt(usize, (@intToFloat(f32, y) + 2478.0) / 500.0);
+fn toRow(y: i32) u8 {
+    return @floatToInt(u8, (@intToFloat(f32, y) + 2478.0) / 500.0);
 }
 
 fn setX(event: InputEvent) void {
@@ -202,7 +196,7 @@ fn trackEvent(e: InputEvent) anyerror!void {
 fn writeTouches() anyerror!void {
     for (touches) | touch | {
         if (touch != null and touch.?.x != null and touch.?.y != null) {
-            try term.writeAt(toX(touch.?.x.?), toY(touch.?.y.?), "*", .{});
+            try term.writeAt(toColumn(touch.?.x.?), toRow(touch.?.y.?), "*", .{});
         }
     }
 }
@@ -213,10 +207,10 @@ fn abs(comptime T: type, a: T) T {
 }
 
 inline fn distance(t: Touch, f: Finger) f32 {
-    const t_col = toX(t.?.x.?);
-    const t_row = toY(t.?.y.?);
-    const dx = abs(u8, t_col - f.col);
-    const dy = abs(u8, t_row - f.row);
+    const t_col = @intCast(i8, toColumn(t.x.?));
+    const t_row = @intCast(i8, toRow(t.y.?));
+    const dx = @intToFloat(f32, abs(i8, t_col - @intCast(i8, f.col)));
+    const dy = @intToFloat(f32, abs(i8, t_row - @intCast(i8, f.row)));
     return math.sqrt(dx*dx + dy*dy);
 }
 
@@ -224,11 +218,11 @@ var finger = [5]Finger{
     Finger{.col =  1, .row = 4, .dx = 0, .dy = 0}, Finger{.col =  4, .row = 4, .dx = 0, .dy = 0},
     Finger{.col =  7, .row = 4, .dx = 0, .dy = 0}, Finger{.col = 10, .row = 4, .dx = 0, .dy = 0},
     Finger{.col = 13, .row = 4, .dx = 0, .dy = 0}};
-fn nearest(t: Touch) Finger {
+fn nearestTo(t: Touch) Finger {
     var dist: f32 = 8000.0;
     var result: Finger = finger[0];
     for (finger) | f | {
-        if (t != null and t.?.x != null and t.?.y != null) {
+        if (t.x != null and t.y != null) {
             const d = distance(t, f);
             if (d < dist) {
                 dist = d;
@@ -239,9 +233,21 @@ fn nearest(t: Touch) Finger {
     return result;
 }
 
+fn updateFingers() void {
+    for (touches) | t | {
+        if (t != null) {
+            var f = nearestTo(t.?);
+            const t_col = @intCast(i8, toColumn(t.?.x.?));
+            const t_row = @intCast(i8, toRow(t.?.y.?));
+            f.dx = @intCast(i8, f.col) - t_col;
+            f.dy = @intCast(i8, f.row) - t_row;
+        }
+    }
+}
+
 fn writeFinger() anyerror!void {
     for (finger) | f | {
-        try term.writeAt(keys.toColumn(f.col), f.row, "f", .{});
+        try term.writeAt(keys.toColumn(f.col) - 1, f.row, "{d}:{d}", .{f.dx, f.dy});
     }
 }
 
@@ -250,6 +256,7 @@ pub fn readEvents() anyerror!void {
         var event = try events.reader().readStruct(InputEvent);
         try trackEvent(event);
         if (isSyn(event)) {
+            updateFingers();
             try term.clear();
             try keys.write();
             try writeTouches();
