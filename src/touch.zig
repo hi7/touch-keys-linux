@@ -33,6 +33,13 @@ const Code = enum(u16) {ABS_X = 0, ABS_Y = 1, ABS_PRESSURE = 24,
 };
 // ABS_MT_SLOT => multi touch finger {value}
 
+pub const Finger = struct {
+    col: u8,
+    row: u8,
+    dx: i8,
+    dy: i8,
+};
+
 pub const Touch = struct {
     tv_sec: u64,
     tv_usec: u64,
@@ -126,22 +133,17 @@ fn updateTouch(event: InputEvent, tch: Touch) Touch {
     return t;
 }
 
+// TODO: toSlot
 fn toColumn(x: i32) usize {
     return @floatToInt(usize, (@intToFloat(f32, x) + 3678.0) / 700.0);
 }
+// TODO: toColumn
 fn toX(x: i32) usize {
     return @floatToInt(usize, (@intToFloat(f32, x) + 3678.0) / 60.0);
 }
+// TODO: toRow
 fn toY(y: i32) usize {
     return @floatToInt(usize, (@intToFloat(f32, y) + 2478.0) / 500.0);
-}
-
-fn writeTouch(touch: Touch) anyerror!void {
-    if (touch.x != null and touch.y != null) {
-        const x = toX(touch.x.?);
-        const y = toY(touch.y.?);
-        try term.writeAt(x, y, "O", .{});
-    }
 }
 
 fn setX(event: InputEvent) void {
@@ -205,6 +207,44 @@ fn writeTouches() anyerror!void {
     }
 }
 
+fn abs(comptime T: type, a: T) T {
+    if (a < 0) return -a;
+    return a;
+}
+
+inline fn distance(t: Touch, f: Finger) f32 {
+    const t_col = toX(t.?.x.?);
+    const t_row = toY(t.?.y.?);
+    const dx = abs(u8, t_col - f.col);
+    const dy = abs(u8, t_row - f.row);
+    return math.sqrt(dx*dx + dy*dy);
+}
+
+var finger = [5]Finger{
+    Finger{.col =  1, .row = 4, .dx = 0, .dy = 0}, Finger{.col =  4, .row = 4, .dx = 0, .dy = 0},
+    Finger{.col =  7, .row = 4, .dx = 0, .dy = 0}, Finger{.col = 10, .row = 4, .dx = 0, .dy = 0},
+    Finger{.col = 13, .row = 4, .dx = 0, .dy = 0}};
+fn nearest(t: Touch) Finger {
+    var dist: f32 = 8000.0;
+    var result: Finger = finger[0];
+    for (finger) | f | {
+        if (t != null and t.?.x != null and t.?.y != null) {
+            const d = distance(t, f);
+            if (d < dist) {
+                dist = d;
+                result = f;
+            }
+        }
+    }
+    return result;
+}
+
+fn writeFinger() anyerror!void {
+    for (finger) | f | {
+        try term.writeAt(keys.toColumn(f.col), f.row, "f", .{});
+    }
+}
+
 pub fn readEvents() anyerror!void {
     while (true) {
         var event = try events.reader().readStruct(InputEvent);
@@ -213,6 +253,7 @@ pub fn readEvents() anyerror!void {
             try term.clear();
             try keys.write();
             try writeTouches();
+            try writeFinger();
         }
     }
 }

@@ -15,6 +15,7 @@ pub const Key = struct {
 };
 const rows: usize = 6;
 const cols: usize = 15;
+pub const col_width = 7;
 var de = [rows][cols]Key{
     .{
         Key{.label="Esc", .char='?'}, Key{.label="F1", .char='?'}, Key{.label="F2", .char='?'}, Key{.label="F3", .char='?'}, 
@@ -49,11 +50,15 @@ var de = [rows][cols]Key{
     }
 };
 
+pub fn toColumn(x: usize) usize {
+    const dx = @divTrunc(x, 3) * 2; 
+    return x * col_width + dx + 1;
+}
+
 pub fn write() anyerror!void {
     for (de) | row, y | {
         for (row) | col, x | {
-            const dx = @divTrunc(x, 3) * 2; 
-            try term.writeAt(x * 7 + dx + 1, y + 1, "{s}", .{col.label});
+            try term.writeAt(toColumn(x), y + 1, "{s}", .{col.label});
         }
     }
 }
