@@ -33,11 +33,16 @@ const Code = enum(u16) {ABS_X = 0, ABS_Y = 1, ABS_PRESSURE = 24,
 };
 // ABS_MT_SLOT => multi touch finger {value}
 
+pub const Point = struct {
+    x: f32,
+    y: f32,
+};
+
 pub const Finger = struct {
-    col: u8,
-    row: u8,
-    dx: i8,
-    dy: i8,
+    x: f32,
+    y: f32,
+    dx: f32,
+    dy: f32,
 };
 
 pub const Touch = struct {
@@ -46,8 +51,8 @@ pub const Touch = struct {
     id: ?i32,
     slot: ?i32,
     pressure: ?i32,
-    x: ?i32,
-    y: ?i32,
+    x: ?f32,
+    y: ?f32,
 };
 
 pub const InputEvent = extern struct {
@@ -94,12 +99,12 @@ fn createTouch(event: InputEvent) ?Touch {
     if (isMtX(event)) {
         return Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec, 
             .id = null, .slot = null,
-            .pressure = null, .x = event.value, .y = null};
+            .pressure = null, .x = toNormalizedX(event.value), .y = null};
     }
     if (isMtY(event)) {
         return Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec, 
             .id = null, .slot = null,
-            .pressure = null, .x = null, .y= event.value};
+            .pressure = null, .x = null, .y = toNormalizedX(event.value)};
     }
     if (isId(event)) {
         return Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec,
@@ -133,23 +138,31 @@ fn updateTouch(event: InputEvent, tch: Touch) Touch {
     return t;
 }
 
-fn toColumn(x: i32) u8 {
-    return @floatToInt(u8, (@intToFloat(f32, x) + 3678.0) / 60.0);
+// width: 7612
+fn toNormalizedX(x: i32) f32 {
+    return (@intToFloat(f32, x) + 3678.0) / 7612.0;
 }
-fn toRow(y: i32) u8 {
-    return @floatToInt(u8, (@intToFloat(f32, y) + 2478.0) / 500.0);
+fn toX(col: u8) i32 {
+    return @intCast(i32, col) * 60 - 3678;
+}
+// height: 5065
+fn toNormalizedY(y: i32) f32 {
+    return (@intToFloat(f32, y) + 2478.0) / 5065.0;
+}
+fn toY(row: u8) i32 {
+    return @intCast(i32, row) * 500 - 2478;
 }
 
 fn setX(event: InputEvent) void {
     if (isMtX(event)) {
         ensureTouchExists(event);
-        touches[slot].?.x = event.value;
+        touches[slot].?.x = toNormalizedX(event.value);
     }
 }
 fn setY(event: InputEvent) void {
     if (isMtY(event)) {
         ensureTouchExists(event);
-        touches[slot].?.y = event.value;
+        touches[slot].?.y = toNormalizedY(event.value);
     }
 }
 fn setId(event: InputEvent) void {
@@ -196,7 +209,9 @@ fn trackEvent(e: InputEvent) anyerror!void {
 fn writeTouches() anyerror!void {
     for (touches) | touch | {
         if (touch != null and touch.?.x != null and touch.?.y != null) {
-            try term.writeAt(toColumn(touch.?.x.?), toRow(touch.?.y.?), "*", .{});
+            const x: usize = @floatToInt(usize, (touch.?.x.? * @intToFloat(f32, keys.width)));
+            const y: usize = @floatToInt(usize, (touch.?.y.? * @intToFloat(f32, keys.height)));
+            try term.writeAt(x, y, "*", .{});
         }
     }
 }
@@ -206,48 +221,74 @@ fn abs(comptime T: type, a: T) T {
     return a;
 }
 
+// TODO: use Point
 inline fn distance(t: Touch, f: Finger) f32 {
-    const t_col = @intCast(i8, toColumn(t.x.?));
-    const t_row = @intCast(i8, toRow(t.y.?));
-    const dx = @intToFloat(f32, abs(i8, t_col - @intCast(i8, f.col)));
-    const dy = @intToFloat(f32, abs(i8, t_row - @intCast(i8, f.row)));
+    const dx = abs(f32, t.x.? - f.x);
+    const dy = abs(f32, t.y.? - f.y);
     return math.sqrt(dx*dx + dy*dy);
 }
 
 var finger = [5]Finger{
-    Finger{.col =  1, .row = 4, .dx = 0, .dy = 0}, Finger{.col =  4, .row = 4, .dx = 0, .dy = 0},
-    Finger{.col =  7, .row = 4, .dx = 0, .dy = 0}, Finger{.col = 10, .row = 4, .dx = 0, .dy = 0},
-    Finger{.col = 13, .row = 4, .dx = 0, .dy = 0}};
-fn nearestTo(t: Touch) Finger {
+    Finger{.x =  0.1, .y = 0.4, .dx = 0, .dy = 0}, Finger{.x =  0.3, .y = 0.4, .dx = 0, .dy = 0},
+    Finger{.x =  0.5, .y = 0.4, .dx = 0, .dy = 0}, Finger{.x =  0.7, .y = 0.4, .dx = 0, .dy = 0},
+    Finger{.x =  0.9, .y = 0.4, .dx = 0, .dy = 0}};
+fn indexOfFingerNearestTo(t: Touch) usize {
     var dist: f32 = 8000.0;
-    var result: Finger = finger[0];
-    for (finger) | f | {
+    var index: usize = 0;
+    for (finger) | f, i | {
         if (t.x != null and t.y != null) {
             const d = distance(t, f);
             if (d < dist) {
                 dist = d;
-                result = f;
+                index = i;
             }
         }
     }
-    return result;
+    return index;
+}
+
+test "indexOfFingerNearestTo() test" {
+    for (finger) | f, i | {
+        var t = Touch{.tv_sec = 1, .tv_usec = 2, .id = null, .slot = null, .pressure = null, .x = toX(f.col), .y = toY(f.row)};
+        assert(indexOfFingerNearestTo(t) == i);
+    }
 }
 
 fn updateFingers() void {
     for (touches) | t | {
-        if (t != null) {
-            var f = nearestTo(t.?);
-            const t_col = @intCast(i8, toColumn(t.?.x.?));
-            const t_row = @intCast(i8, toRow(t.?.y.?));
-            f.dx = @intCast(i8, f.col) - t_col;
-            f.dy = @intCast(i8, f.row) - t_row;
+        if (t != null and t.?.x != null and t.?.y != null) {
+            const i = indexOfFingerNearestTo(t.?);
+            var f = finger[i];
+            f.dx = t.?.x.? - f.x;
+            f.dy = t.?.y.? - f.y;
+            finger[i] = f;
         }
     }
 }
 
+test "updateFingers() test" {
+    //const stepX: i32 = 127; //7612 / 60 = 126.8666...
+    //const stepY: i32 = 10; // 5065 / 500 = 10.23
+    touches[0] = Touch{.tv_sec = 1, .tv_usec = 2, .id = null, .slot = null, .pressure = null, .x = toX(4)+60, .y = toY(4)-5};
+    assert(indexOfFingerNearestTo(touches[0].?) == 1);
+    updateFingers();
+    assert(finger[1].dx == -1);
+    assert(finger[1].dy == 1);
+}
+
 fn writeFinger() anyerror!void {
-    for (finger) | f | {
-        try term.writeAt(keys.toColumn(f.col) - 1, f.row, "{d}:{d}", .{f.dx, f.dy});
+    for (finger) | f, i | {
+        var ix = f.x + f.dx;
+        if (ix < 0) {
+            ix = 0;
+        }
+        const x: usize = @floatToInt(usize, (ix * @intToFloat(f32, keys.width)));
+        var iy = f.y + f.dy;
+        if (iy < 0) {
+            iy = 0;
+        }
+        const y: usize = @floatToInt(usize, (iy * @intToFloat(f32, keys.height)));
+        try term.writeAt(x, y, "{d}", .{i});
     }
 }
 

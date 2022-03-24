@@ -16,6 +16,8 @@ pub const Key = struct {
 const rows: usize = 6;
 const cols: usize = 15;
 pub const col_width = 7;
+pub const width = cols * col_width;
+pub const height = rows;
 var de = [rows][cols]Key{
     .{
         Key{.label="Esc", .char='?'}, Key{.label="F1", .char='?'}, Key{.label="F2", .char='?'}, Key{.label="F3", .char='?'}, 
