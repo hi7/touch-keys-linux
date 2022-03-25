@@ -18,7 +18,7 @@ pub fn main() anyerror!void {
     try term.clear();
 
     const device = touch.readDevice() catch | err | {
-        std.debug.print("{s}!\n", .{err});
+        std.debug.print("No Trackpad: {s}!\n", .{err});
         return;
     };
     touch.events = try touch.openEvents(device);
