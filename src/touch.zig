@@ -33,16 +33,11 @@ const Code = enum(u16) {ABS_X = 0, ABS_Y = 1, ABS_PRESSURE = 24,
 };
 // ABS_MT_SLOT => multi touch finger {value}
 
-pub const Point = struct {
-    x: f32,
-    y: f32,
-};
-
 pub const Finger = struct {
     col: u8,
     row: u8,
-    dx: f32,
-    dy: f32,
+    dc: i8,
+    dr: i8,
 };
 
 pub const Touch = struct {
@@ -149,8 +144,32 @@ fn toX(col: u8) i32 {
 fn toNormalizedY(y: i32) f32 {
     return (@intToFloat(f32, y) + 2478.0) / 5065.0;
 }
+fn xToCol(comptime T: type, x: f32) T {
+    return @floatToInt(T, (x * @intToFloat(f32, keys.width)));
+}
+test "xToCol test" {
+    assert(xToCol(u8, colToX(u8, 1)) == 1);
+}
+fn yToRow(comptime T: type, y: f32) T {
+    return @floatToInt(T, (y * @intToFloat(f32, keys.height)));
+}
+test "yToRow test" {
+    assert(yToRow(u8, rowToY(u8, 2)) == 2);
+}
 fn toY(row: u8) i32 {
     return @intCast(i32, row) * 500 - 2478;
+}
+fn colToX(comptime T: type, col: T) f32 {
+    return @intToFloat(f32, col) / @intToFloat(f32, keys.width);
+}
+test "colToX test" {
+    assert(eq(f32, colToX(u8, 1), 0.00959, 0.0001));
+}
+fn rowToY(comptime T: type, row: T) f32 {
+    return @intToFloat(f32, row) / @intToFloat(f32, keys.height);
+}
+test "rowToY test" {
+    assert(eq(f32, rowToY(u8, 4), 0.667, 0.001));
 }
 
 fn setX(event: InputEvent) void {
@@ -233,37 +252,24 @@ test "eq test" {
     assert(eq(f32, 0.1, 0.09, 0.02) == true);
 }
 
-fn colToX(col: u8) f32 {
-    return @intToFloat(f32, col) / @intToFloat(f32, keys.width);
-}
-test "colToX test" {
-    assert(eq(f32, colToX(1), 0.00959, 0.0001));
-}
-fn rowToY(row: u8) f32 {
-    return @intToFloat(f32, row) / @intToFloat(f32, keys.height);
-}
-test "rowToY test" {
-    assert(eq(f32, rowToY(4), 0.667, 0.001));
-}
-
 inline fn distance(t: Touch, f: Finger) f32 {
-    const dx = abs(f32, (t.x.? + f.dx) - colToX(f.col));
-    const dy = abs(f32, (t.y.? + f.dy) - rowToY(f.row));
+    const dx = abs(f32, (t.x.? + colToX(i8, f.dc)) - colToX(u8, f.col));
+    const dy = abs(f32, (t.y.? + rowToY(i8, f.dr)) - rowToY(u8, f.row));
     return math.sqrt(dx*dx + dy*dy);
 }
 test "distance test" {
-    const f = Finger{.col = 1, .row = 4, .dx = 0, .dy = 0};
+    const f = Finger{.col = 1, .row = 4, .dc = 0, .dr = 0};
     const t = Touch{.tv_sec = 1, .tv_usec = 2, .id = null, .slot = null, .pressure = null, 
         .x = toNormalizedX(-3605), .y = toNormalizedY(899)};
     assert(eq(f32, distance(t, f), 0.0, 0.0001));
 }
 
 var finger = [5]Finger{
-    Finger{.col =  1, .row = 4, .dx = 0, .dy = 0}, 
-    Finger{.col =  4, .row = 4, .dx = 0, .dy = 0}, 
-    Finger{.col =  7, .row = 4, .dx = 0, .dy = 0}, 
-    Finger{.col = 10, .row = 4, .dx = 0, .dy = 0}, 
-    Finger{.col = 13, .row = 4, .dx = 0, .dy = 0}};
+    Finger{.col =  1, .row = 4, .dc = 0, .dr = 0}, 
+    Finger{.col =  4, .row = 4, .dc = 0, .dr = 0}, 
+    Finger{.col =  7, .row = 4, .dc = 0, .dr = 0}, 
+    Finger{.col = 10, .row = 4, .dc = 0, .dr = 0}, 
+    Finger{.col = 13, .row = 4, .dc = 0, .dr = 0}};
 fn indexOfFingerNearestTo(t: Touch) usize {
     var dist: f32 = 8000.0;
     var index: usize = 0;
@@ -282,15 +288,15 @@ fn indexOfFingerNearestTo(t: Touch) usize {
 test "indexOfFingerNearestTo() test" {
     for (finger) | f, i | {
         var t = Touch{.tv_sec = 1, .tv_usec = 2, .id = null, .slot = null, 
-            .pressure = null, .x = colToX(f.col), .y = rowToY(f.row)};
+            .pressure = null, .x = colToX(u8, f.col), .y = rowToY(u8, f.row)};
         assert(indexOfFingerNearestTo(t) == i);
     }
 }
 
 fn resetFinger() void {
     for (finger) | _, i | {
-        finger[i].dx = 0;
-        finger[i].dy = 0;
+        finger[i].dc = 0;
+        finger[i].dr = 0;
     }
 }
 
@@ -310,19 +316,19 @@ fn updateFingerDelta() void {
             const t = touch.?;
             const i = indexOfFingerNearestTo(t);
             var f = finger[i];
-            f.dx = t.x.? - colToX(f.col);
-            f.dy = t.y.? - rowToY(f.row);
+            f.dc = xToCol(i8, t.x.?) - @intCast(i8, f.col);
+            f.dr = yToRow(i8, t.y.?) - @intCast(i8, f.row);
             finger[i] = f;
         }
     }
 }
 test "updateFingerDelta() test" {
     touches[0] = Touch{.tv_sec = 1, .tv_usec = 2, .id = null, .slot = null, .pressure = null, 
-        .x = colToX(5), .y = rowToY(4)};
+        .x = colToX(u8, 5), .y = rowToY(u8, 4)};
     assert(indexOfFingerNearestTo(touches[0].?) == 1);
     updateFingerDelta();
-    assert(eq(f32, colToX(finger[1].col) + finger[1].dx, touches[0].?.x.?, 0.000001));
-    assert(eq(f32, rowToY(finger[1].row) + finger[1].dy, touches[0].?.y.?, 0.000001));
+    assert(eq(f32, colToX(u8, finger[1].col) + colToX(i8, finger[1].dc), touches[0].?.x.?, 0.000001));
+    assert(eq(f32, rowToY(u8, finger[1].row) + rowToY(i8, finger[1].dr), touches[0].?.y.?, 0.000001));
 }
 
 var setDelta: bool = true;
@@ -346,7 +352,7 @@ inline fn fingerX(tx: f32, fdx: f32) usize {
     return @floatToInt(usize, (ix * @intToFloat(f32, keys.width)));
 }
 test "fingerX test" {
-    assert(fingerX(colToX(1), 0) == 1);
+    assert(fingerX(colToX(u8, 1), 0) == 1);
 }
 inline fn fingerY(ty: f32, fdy: f32) usize {
     var iy = ty + fdy;
@@ -356,18 +362,20 @@ inline fn fingerY(ty: f32, fdy: f32) usize {
     return @floatToInt(usize, (iy * @intToFloat(f32, keys.height)));
 }
 test "fingerY test" {
-    assert(fingerY(rowToY(4), 0) == 4);
+    assert(fingerY(rowToY(u8, 4), 0) == 4);
 }
 fn writeFinger() anyerror!void {
     for (finger) | f, i | {
-        try term.writeAt(keys.toColumn(f.col), f.row + 4, "{d}({d:.2},{d:.2})", .{i, f.dx, f.dy});
+        try term.writeAt(keys.toColumn(usize, f.col), f.row + 4, "{d}({d:.2},{d:.2})", .{i, f.dc, f.dr});
     }
     for (touches) | touch | {
         if (touch != null and touch.?.x != null and touch.?.y != null) {
             const t = touch.?;
             const i = indexOfFingerNearestTo(t);
             const f = finger[i];
-            try term.writeAt(keys.toColumn(fingerX(t.x.?, f.dx)), fingerY(t.y.?, f.dy), "T{d}", .{i});
+            try term.writeAt(keys.toColumn(usize, 
+                @intCast(usize, xToCol(i8, t.x.?) + f.dc)), 
+                @intCast(usize, (yToRow(i8, t.y.?) + f.dr)), "T{d}", .{i});
         }
     }
 }

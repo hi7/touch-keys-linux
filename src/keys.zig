@@ -52,15 +52,15 @@ var de = [rows][cols]Key{
     }
 };
 
-pub fn toColumn(x: usize) usize {
-    const dx = @divTrunc(x, 3) * 2; 
+pub fn toColumn(comptime T: type, x: T) T {
+    const dx = @divTrunc(x, 3) * 2;
     return x * col_width + dx + 1;
 }
 
 pub fn write() anyerror!void {
     for (de) | row, y | {
         for (row) | col, x | {
-            try term.writeAt(toColumn(x), y + 1, "{s}", .{col.label});
+            try term.writeAt(toColumn(usize, x), y + 1, "{s}", .{col.label});
         }
     }
 }
