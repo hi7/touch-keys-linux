@@ -198,13 +198,37 @@ inline fn ensureTouchExists(e: InputEvent) void {
     }
 }
 
+var current_sec: u64 = undefined;
+var current_usec: u64 = undefined;
+fn removeOldTouches() void {
+    for (touches) | touch, index | {
+        if (touch != null and touch.?.tv_sec != current_sec and touch.?.tv_usec != current_usec) {
+            touches[index] = null;
+        }
+    }
+}
+
 fn trackEvent(e: InputEvent) anyerror!void {
+    current_sec = e.tv_sec;
+    current_usec = e.tv_usec;
     setSlot(e);
     setX(e);
     setY(e);
     setId(e);
     setPressure(e);
+    removeOldTouches();
 }
+
+fn isFiveDown() bool {
+    var count: u8 = 0;
+    for (touches) | touch | {
+        if (touch != null and touch.?.x != null and touch.?.y != null) {
+            count += 1;
+        }
+    }
+    return count == 5;
+}
+
 
 fn writeTouches() anyerror!void {
     for (touches) | touch | {
@@ -265,7 +289,14 @@ test "indexOfFingerNearestTo() test" {
     }
 }
 
-fn updateFingers() void {
+fn resetFinger() void {
+    for (finger) | _, i | {
+        finger[i].dx = 0;
+        finger[i].dy = 0;
+    }
+}
+
+fn updateFinger() void {
     for (touches) | touch | {
         if (touch != null and touch.?.x != null and touch.?.y != null) {
             const t = touch.?;
@@ -282,24 +313,28 @@ test "updateFingers() test" {
     touches[0] = Touch{.tv_sec = 1, .tv_usec = 2, .id = null, .slot = null, .pressure = null, 
         .x = keys.toNormalizedX(5), .y = keys.toNormalizedX(4)};
     assert(indexOfFingerNearestTo(touches[0].?) == 1);
-    updateFingers();
+    updateFinger();
     assert(eq(f32, finger[1].dx,  0.00952, 0.00005));
     assert(eq(f32, finger[1].dy, -0.62857, 0.00005));
 }
 
+inline fn fingerX(f: Finger) usize {
+    var ix = f.x + f.dx;
+    if (ix < 0) {
+        ix = 0;
+    }
+    return @floatToInt(usize, (ix * @intToFloat(f32, keys.width)));
+}
+inline fn fingerY(f: Finger) usize {
+    var iy = f.y + f.dy;
+    if (iy < 0) {
+        iy = 0;
+    }
+    return @floatToInt(usize, (iy * @intToFloat(f32, keys.height)));
+}
 fn writeFinger() anyerror!void {
     for (finger) | f, i | {
-        var ix = f.x + f.dx;
-        if (ix < 0) {
-            ix = 0;
-        }
-        const x: usize = @floatToInt(usize, (ix * @intToFloat(f32, keys.width)));
-        var iy = f.y + f.dy;
-        if (iy < 0) {
-            iy = 0;
-        }
-        const y: usize = @floatToInt(usize, (iy * @intToFloat(f32, keys.height)));
-        try term.writeAt(x, y, "{d}", .{i});
+        try term.writeAt(fingerX(f), fingerY(f), "{d}", .{i});
     }
 }
 
@@ -308,7 +343,7 @@ pub fn readEvents() anyerror!void {
         var event = try events.reader().readStruct(InputEvent);
         try trackEvent(event);
         if (isSyn(event)) {
-            updateFingers();
+            updateFinger();
             try term.clear();
             try keys.write();
             try writeTouches();
