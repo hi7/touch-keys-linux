@@ -11,6 +11,8 @@ const assert = std.debug.assert;
 const expect = std.testing.expect;
 
 var debug: u8 = 0;
+const scale_y: f32 = 10.0;
+const scale_x: f32 = 0.2;
 pub var events: File = undefined;
 
 pub fn openEvents(device: []const u8) anyerror!fs.File {
@@ -134,7 +136,6 @@ fn updateTouch(event: InputEvent, tch: Touch) Touch {
     return t;
 }
 
-const scale_y: f32 = 10.0;
 // width: 7612
 fn toNormalizedX(x: i32) f32 {
     return (@intToFloat(f32, x) + 3678.0) / 7612.0;
@@ -147,7 +148,7 @@ fn toNormalizedY(y: i32) f32 {
     return (@intToFloat(f32, y) + 2478.0) / 5065.0;
 }
 fn xToCol(comptime T: type, x: f32) T {
-    return @floatToInt(T, (x * @intToFloat(f32, keys.width)));
+    return @floatToInt(T, (x * @intToFloat(f32, keys.width) * scale_x));
 }
 test "xToCol test" {
     assert(xToCol(u8, colToX(u8, 1)) == 1);
@@ -233,6 +234,7 @@ fn writeTouches() anyerror!void {
             const t = touch.?;
             const c = xToCol(usize, t.x.?);
             const r = yToRow(usize, t.y.?);
+            const col = @floatToInt(usize, @intToFloat(f32, c) / scale_x);
             const row = @floatToInt(usize, @intToFloat(f32, r) / scale_y);
             if (t.finger_index != null) {
                 const fi = t.finger_index.?;
@@ -250,7 +252,7 @@ fn writeTouches() anyerror!void {
                     try term.writeAt(keys.toCol(usize, f.col), f.row, "{d}({d}:{d})", .{fi, c, r});
                 }
             } else {
-                try term.writeAt(c, row, "*", .{});
+                try term.writeAt(col, row, "*", .{});
             }
         }
     }
