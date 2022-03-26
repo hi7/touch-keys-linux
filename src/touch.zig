@@ -317,18 +317,6 @@ fn fingerDown() u8 {
     return count;
 }
 
-var setDelta: bool = true;
-fn updateFinger() void {
-    var down = fingerDown();
-    if (setDelta and down == 5) {
-        matchFinger();
-        setDelta = false;
-    }
-    if (down == 0){
-        setDelta = true;
-    }
-}
-
 inline fn fingerX(tx: f32, fdx: f32) usize {
     var ix = tx + fdx;
     if (ix < 0) {
@@ -355,11 +343,10 @@ pub fn readEvents() anyerror!void {
         var event = try events.reader().readStruct(InputEvent);
         try trackEvent(event);
         if (isSyn(event)) {
-            updateFinger();
+            matchFinger();
             try term.clear();
             try keys.write();
             try writeTouches();
-            // try writeFinger();
         }
     }
 }
