@@ -13,12 +13,12 @@ pub const Key = struct {
     label: []const u8,
     char: u8,
 };
-const rows: usize = 6;
-const cols: usize = 15;
+pub const rows: usize = 6;
+pub const cols: usize = 15;
 pub const col_width = 7;
 pub const width = cols * col_width;
 pub const height = rows;
-var de = [rows][cols]Key{
+pub var de = [rows][cols]Key{
     .{
         Key{.label="Esc", .char='?'}, Key{.label=   "F1", .char='?'}, Key{.label=    "F2", .char='?'}, Key{.label= "F3", .char='?'}, 
         Key{.label= "F4", .char='?'}, Key{.label=   "F5", .char='?'}, Key{.label=    "F6", .char='?'}, Key{.label= "F7", .char='?'}, 

@@ -240,9 +240,13 @@ fn writeTouches() anyerror!void {
                 if (f.rc != null and f.rr != null) {
                     const dx = @intCast(i16, c) - @intCast(i16, f.rc.?);
                     const dy = @intCast(i16, r) - @intCast(i16, f.rr.?);
-                    try term.writeAt(c, row, "{d}({d}:{d})", .{fi, dx, dy}); 
+                    const kc = @intCast(i16, f.col) + dx;
+                    const key_col = if (kc < 0) 0 else if (kc >= keys.cols) keys.cols-1 else @intCast(usize, kc);
+                    const kr = @intCast(i16, f.row) + dy - 1;
+                    const key_row = if (kr < 0) 0 else if (kr >= keys.rows) keys.rows-1 else @intCast(usize, kr);
+                    try term.writeAt(keys.toCol(usize, f.col), f.row, "{s}", .{keys.de[key_row][key_col].label}); 
                 } else {
-                    try term.writeAt(c, row, "{d}({d}:{d})", .{fi, c, r});
+                    try term.writeAt(keys.toCol(usize, f.col), f.row, "{d}({d}:{d})", .{fi, c, r});
                 }
             } else {
                 try term.writeAt(c, row, "*", .{});
