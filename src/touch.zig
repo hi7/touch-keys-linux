@@ -236,9 +236,9 @@ fn writeTouches() anyerror!void {
                 const fi = t.finger_index.?;
                 const f = finger[fi];
                 if (f.rc != null and f.rr != null) {
-                    // const dx = @intCast(i16, c) - @intCast(i16, f.rc.?);
-                    // const dy = @intCast(i16, r) - @intCast(i16, f.rr.?);
-                    try term.writeAt(c, r, "{d}({d}:{d}|{d}:{d})", .{fi, c, r, f.rc, f.rr});
+                    const dx = @intCast(i16, c) - @intCast(i16, f.rc.?);
+                    const dy = @intCast(i16, r) - @intCast(i16, f.rr.?);
+                    try term.writeAt(c, r, "{d}({d}:{d})", .{fi, dx, dy}); 
                 } else {
                     try term.writeAt(c, r, "{d}({d}:{d})", .{fi, c, r});
                 }
