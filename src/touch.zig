@@ -134,6 +134,7 @@ fn updateTouch(event: InputEvent, tch: Touch) Touch {
     return t;
 }
 
+const scale_y: f32 = 10.0;
 // width: 7612
 fn toNormalizedX(x: i32) f32 {
     return (@intToFloat(f32, x) + 3678.0) / 7612.0;
@@ -152,7 +153,7 @@ test "xToCol test" {
     assert(xToCol(u8, colToX(u8, 1)) == 1);
 }
 fn yToRow(comptime T: type, y: f32) T {
-    return @floatToInt(T, (y * @intToFloat(f32, keys.height)));
+    return @floatToInt(T, (y * @intToFloat(f32, keys.height) * scale_y));
 }
 test "yToRow test" {
     assert(yToRow(u8, rowToY(u8, 2)) == 2);
@@ -232,18 +233,19 @@ fn writeTouches() anyerror!void {
             const t = touch.?;
             const c = xToCol(usize, t.x.?);
             const r = yToRow(usize, t.y.?);
+            const row = @floatToInt(usize, @intToFloat(f32, r) / scale_y);
             if (t.finger_index != null) {
                 const fi = t.finger_index.?;
                 const f = finger[fi];
                 if (f.rc != null and f.rr != null) {
                     const dx = @intCast(i16, c) - @intCast(i16, f.rc.?);
                     const dy = @intCast(i16, r) - @intCast(i16, f.rr.?);
-                    try term.writeAt(c, r, "{d}({d}:{d})", .{fi, dx, dy}); 
+                    try term.writeAt(c, row, "{d}({d}:{d})", .{fi, dx, dy}); 
                 } else {
-                    try term.writeAt(c, r, "{d}({d}:{d})", .{fi, c, r});
+                    try term.writeAt(c, row, "{d}({d}:{d})", .{fi, c, r});
                 }
             } else {
-                try term.writeAt(c, r, "*", .{});
+                try term.writeAt(c, row, "*", .{});
             }
         }
     }
