@@ -244,7 +244,8 @@ fn writeTouches() anyerror!void {
                     const key_col = if (kc < 0) 0 else if (kc >= keys.cols) keys.cols-1 else @intCast(usize, kc);
                     const kr = @intCast(i16, f.row) + dy - 1;
                     const key_row = if (kr < 0) 0 else if (kr >= keys.rows) keys.rows-1 else @intCast(usize, kr);
-                    try term.writeAt(keys.toCol(usize, f.col), f.row, "{s}", .{keys.de[key_row][key_col].label}); 
+                    try term.writeAt(keys.toCol(usize, key_col), key_row + 1, "{s}{s}{s}", 
+                        .{term.REVERSE_MODE, keys.de[key_row][key_col].label, term.RESET_MODE}); 
                 } else {
                     try term.writeAt(keys.toCol(usize, f.col), f.row, "{d}({d}:{d})", .{fi, c, r});
                 }
