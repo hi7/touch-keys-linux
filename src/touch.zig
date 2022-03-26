@@ -36,6 +36,8 @@ const Code = enum(u16) {ABS_X = 0, ABS_Y = 1, ABS_PRESSURE = 24,
 pub const Finger = struct {
     col: u8,
     row: u8,
+    rc: ?u8, // reference column
+    rr: ?u8, // reference row
 };
 
 pub const Touch = struct {
@@ -228,13 +230,20 @@ fn writeTouches() anyerror!void {
     for (touches) | touch | {
         if (touch != null and touch.?.x != null and touch.?.y != null) {
             const t = touch.?;
-            const x: usize = @floatToInt(usize, (t.x.? * @intToFloat(f32, keys.width)));
-            const y: usize = @floatToInt(usize, (t.y.? * @intToFloat(f32, keys.height)));
+            const c = xToCol(usize, t.x.?);
+            const r = yToRow(usize, t.y.?);
             if (t.finger_index != null) {
                 const fi = t.finger_index.?;
-                try term.writeAt(x, y, "{d}", .{fi});
+                const f = finger[fi];
+                if (f.rc != null and f.rr != null) {
+                    // const dx = @intCast(i16, c) - @intCast(i16, f.rc.?);
+                    // const dy = @intCast(i16, r) - @intCast(i16, f.rr.?);
+                    try term.writeAt(c, r, "{d}({d}:{d}|{d}:{d})", .{fi, c, r, f.rc, f.rr});
+                } else {
+                    try term.writeAt(c, r, "{d}({d}:{d})", .{fi, c, r});
+                }
             } else {
-                try term.writeAt(x, y, "*", .{});
+                try term.writeAt(c, r, "*", .{});
             }
         }
     }
@@ -267,31 +276,49 @@ test "distance test" {
     assert(eq(f32, distance(0, 0, 10, 10), 14.14213, 0.00001));
 }
 
+fn fingerAssigned(index: usize) bool {
+    for (touches) | touch | {
+        if (touch != null and touch.?.finger_index != null and touch.?.finger_index.? == index) return true;
+    }
+    return false;
+}
+
 var finger = [5]Finger{
-    Finger{.col =  1, .row = 4}, 
-    Finger{.col =  4, .row = 4}, 
-    Finger{.col =  7, .row = 4}, 
-    Finger{.col = 10, .row = 4}, 
-    Finger{.col = 13, .row = 4}};
+    Finger{.col =  1, .row = 4, .rc = null, .rr = null}, 
+    Finger{.col =  4, .row = 4, .rc = null, .rr = null}, 
+    Finger{.col =  7, .row = 4, .rc = null, .rr = null}, 
+    Finger{.col = 10, .row = 4, .rc = null, .rr = null}, 
+    Finger{.col = 13, .row = 4, .rc = null, .rr = null}};
 const limit: f32 = 8000.0;
 fn matchFinger() void {
-    for (finger) | f, fi | {
-        var dist: f32 = limit;
-        var nearest: ?usize = null;
-        const x = colToX(u8, f.col);
-        const y = rowToY(u8, f.row);
-        for (touches) | touch, ti | {
-            if (touch != null and touch.?.x != null and touch.?.y != null) {
-                var t = touch.?;
-                const d = distance(x, y, t.x.?, t.y.?);
-                if (t.finger_index == null and d < dist) {
-                    dist = d;
-                    nearest = ti;
+    if (fingerDown() == 5 or fingerDown() == 0) {
+        for (finger) | f, fi | {
+            var dist: f32 = limit;
+            var nearest: ?usize = null;
+            const x = colToX(u8, f.col);
+            const y = rowToY(u8, f.row);
+            for (touches) | touch, ti | {
+                if (touch != null and touch.?.x != null and touch.?.y != null) {
+                    var t = touch.?;
+                    const d = distance(x, y, t.x.?, t.y.?);
+                    if (t.finger_index == null and !fingerAssigned(fi) and d < dist) {
+                        dist = d;
+                        nearest = ti;
+                    }
                 }
             }
-        }
-        if (dist < limit) {
-            touches[nearest.?].?.finger_index = @intCast(u8, fi);
+            if (dist < limit) {
+                touches[nearest.?].?.finger_index = @intCast(u8, fi);
+                const t = touches[nearest.?].?;
+                if (fingerDown() == 5) {
+                    finger[fi].rc = xToCol(u8, t.x.?);
+                    finger[fi].rr = yToRow(u8, t.y.?);
+                }
+                if (fingerDown() == 0) {
+                    finger[fi].rc = null;
+                    finger[fi].rr = null;
+                }
+            }
         }
     }
 }
