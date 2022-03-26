@@ -36,8 +36,6 @@ const Code = enum(u16) {ABS_X = 0, ABS_Y = 1, ABS_PRESSURE = 24,
 pub const Finger = struct {
     col: u8,
     row: u8,
-    dc: i8,
-    dr: i8,
 };
 
 pub const Touch = struct {
@@ -48,6 +46,7 @@ pub const Touch = struct {
     pressure: ?i32,
     x: ?f32,
     y: ?f32,
+    finger_index: ?u8,
 };
 
 pub const InputEvent = extern struct {
@@ -88,28 +87,28 @@ fn zeroPressure(touch: Touch) bool {
 fn createTouch(event: InputEvent) ?Touch {
     if (isPressure(event)) {
         return Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec,
-            .id = null, .slot = null,
-            .pressure = event.value, .x = null, .y = null};
+            .id = null, .slot = null, .pressure = event.value, 
+            .x = null, .y = null, .finger_index = null};
     }
     if (isMtX(event)) {
         return Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec, 
-            .id = null, .slot = null,
-            .pressure = null, .x = toNormalizedX(event.value), .y = null};
+            .id = null, .slot = null, .pressure = null, 
+            .x = toNormalizedX(event.value), .y = null, .finger_index = null};
     }
     if (isMtY(event)) {
         return Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec, 
-            .id = null, .slot = null,
-            .pressure = null, .x = null, .y = toNormalizedX(event.value)};
+            .id = null, .slot = null, .pressure = null, 
+            .x = null, .y = toNormalizedX(event.value), .finger_index = null};
     }
     if (isId(event)) {
         return Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec,
-            .id = event.value, .slot = null,
-            .pressure = null, .x = null, .y = null};
+            .id = event.value, .slot = null, .pressure = null, 
+            .x = null, .y = null, .finger_index = null};
     }
     if (isSlot(event)) {
         return Touch{.tv_sec = event.tv_sec, .tv_usec = event.tv_usec,
-            .id = null, .slot = event.value,
-            .pressure = null, .x = null, .y = null};
+            .id = null, .slot = event.value, .pressure = null, 
+            .x = null, .y = null, .finger_index = null};
     }
     return null;
 }
@@ -228,9 +227,15 @@ fn trackEvent(e: InputEvent) anyerror!void {
 fn writeTouches() anyerror!void {
     for (touches) | touch | {
         if (touch != null and touch.?.x != null and touch.?.y != null) {
-            const x: usize = @floatToInt(usize, (touch.?.x.? * @intToFloat(f32, keys.width)));
-            const y: usize = @floatToInt(usize, (touch.?.y.? * @intToFloat(f32, keys.height)));
-            try term.writeAt(x, y, "*", .{});
+            const t = touch.?;
+            const x: usize = @floatToInt(usize, (t.x.? * @intToFloat(f32, keys.width)));
+            const y: usize = @floatToInt(usize, (t.y.? * @intToFloat(f32, keys.height)));
+            if (t.finger_index != null) {
+                const fi = t.finger_index.?;
+                try term.writeAt(x, y, "{d}", .{fi});
+            } else {
+                try term.writeAt(x, y, "*", .{});
+            }
         }
     }
 }
@@ -252,52 +257,54 @@ test "eq test" {
     assert(eq(f32, 0.1, 0.09, 0.02) == true);
 }
 
-inline fn distance(t: Touch, f: Finger) f32 {
-    const dx = abs(f32, (t.x.? + colToX(i8, f.dc)) - colToX(u8, f.col));
-    const dy = abs(f32, (t.y.? + rowToY(i8, f.dr)) - rowToY(u8, f.row));
+inline fn distance(x1: f32, y1: f32, x2: f32, y2: f32) f32 {
+    const dx = abs(f32, (x1 - x2));
+    const dy = abs(f32, (y1 - y2));
     return math.sqrt(dx*dx + dy*dy);
 }
 test "distance test" {
-    const f = Finger{.col = 1, .row = 4, .dc = 0, .dr = 0};
-    const t = Touch{.tv_sec = 1, .tv_usec = 2, .id = null, .slot = null, .pressure = null, 
-        .x = toNormalizedX(-3605), .y = toNormalizedY(899)};
-    assert(eq(f32, distance(t, f), 0.0, 0.0001));
+    assert(eq(f32, distance(1, 4,  1,  4),  0.0,     0.0001));
+    assert(eq(f32, distance(0, 0, 10, 10), 14.14213, 0.00001));
 }
 
 var finger = [5]Finger{
-    Finger{.col =  1, .row = 4, .dc = 0, .dr = 0}, 
-    Finger{.col =  4, .row = 4, .dc = 0, .dr = 0}, 
-    Finger{.col =  7, .row = 4, .dc = 0, .dr = 0}, 
-    Finger{.col = 10, .row = 4, .dc = 0, .dr = 0}, 
-    Finger{.col = 13, .row = 4, .dc = 0, .dr = 0}};
-fn indexOfFingerNearestTo(t: Touch) usize {
-    var dist: f32 = 8000.0;
-    var index: usize = 0;
-    for (finger) | f, i | {
-        if (t.x != null and t.y != null) {
-            const d = distance(t, f);
-            if (d < dist) {
-                dist = d;
-                index = i;
+    Finger{.col =  1, .row = 4}, 
+    Finger{.col =  4, .row = 4}, 
+    Finger{.col =  7, .row = 4}, 
+    Finger{.col = 10, .row = 4}, 
+    Finger{.col = 13, .row = 4}};
+const limit: f32 = 8000.0;
+fn matchFinger() void {
+    for (finger) | f, fi | {
+        var dist: f32 = limit;
+        var nearest: ?usize = null;
+        const x = colToX(u8, f.col);
+        const y = rowToY(u8, f.row);
+        for (touches) | touch, ti | {
+            if (touch != null and touch.?.x != null and touch.?.y != null) {
+                var t = touch.?;
+                const d = distance(x, y, t.x.?, t.y.?);
+                if (t.finger_index == null and d < dist) {
+                    dist = d;
+                    nearest = ti;
+                }
             }
         }
-    }
-    return index;
-}
-
-test "indexOfFingerNearestTo() test" {
-    for (finger) | f, i | {
-        var t = Touch{.tv_sec = 1, .tv_usec = 2, .id = null, .slot = null, 
-            .pressure = null, .x = colToX(u8, f.col), .y = rowToY(u8, f.row)};
-        assert(indexOfFingerNearestTo(t) == i);
+        if (dist < limit) {
+            touches[nearest.?].?.finger_index = @intCast(u8, fi);
+        }
     }
 }
-
-fn resetFinger() void {
-    for (finger) | _, i | {
-        finger[i].dc = 0;
-        finger[i].dr = 0;
-    }
+test "matchFinger() test" {
+    touches[0] = Touch{.tv_sec = 2, .tv_usec = 3, 
+            .id = null, .slot = null, .pressure = null, 
+            .x = colToX(u8, finger[1].col), .y = rowToY(u8, finger[1].row), .finger_index = null};
+    touches[1] = Touch{.tv_sec = 2, .tv_usec = 3, 
+            .id = null, .slot = null, .pressure = null, 
+            .x = colToX(u8, finger[2].col), .y = rowToY(u8, finger[2].row), .finger_index = null};
+    matchFinger();
+    assert(touches[0].?.finger_index.? == 0);
+    assert(touches[1].?.finger_index.? == 1);
 }
 
 fn fingerDown() u8 {
@@ -310,36 +317,14 @@ fn fingerDown() u8 {
     return count;
 }
 
-fn updateFingerDelta() void {
-    for (touches) | touch | {
-        if (touch != null and touch.?.x != null and touch.?.y != null) {
-            const t = touch.?;
-            const i = indexOfFingerNearestTo(t);
-            var f = finger[i];
-            f.dc = xToCol(i8, t.x.?) - @intCast(i8, f.col);
-            f.dr = yToRow(i8, t.y.?) - @intCast(i8, f.row);
-            finger[i] = f;
-        }
-    }
-}
-test "updateFingerDelta() test" {
-    touches[0] = Touch{.tv_sec = 1, .tv_usec = 2, .id = null, .slot = null, .pressure = null, 
-        .x = colToX(u8, 5), .y = rowToY(u8, 4)};
-    assert(indexOfFingerNearestTo(touches[0].?) == 1);
-    updateFingerDelta();
-    assert(eq(f32, colToX(u8, finger[1].col) + colToX(i8, finger[1].dc), touches[0].?.x.?, 0.000001));
-    assert(eq(f32, rowToY(u8, finger[1].row) + rowToY(i8, finger[1].dr), touches[0].?.y.?, 0.000001));
-}
-
 var setDelta: bool = true;
 fn updateFinger() void {
     var down = fingerDown();
     if (setDelta and down == 5) {
-        updateFingerDelta();
+        matchFinger();
         setDelta = false;
     }
     if (down == 0){
-        resetFinger();
         setDelta = true;
     }
 }
@@ -364,21 +349,6 @@ inline fn fingerY(ty: f32, fdy: f32) usize {
 test "fingerY test" {
     assert(fingerY(rowToY(u8, 4), 0) == 4);
 }
-fn writeFinger() anyerror!void {
-    for (finger) | f, i | {
-        try term.writeAt(keys.toColumn(usize, f.col), f.row + 4, "{d}({d:.2},{d:.2})", .{i, f.dc, f.dr});
-    }
-    for (touches) | touch | {
-        if (touch != null and touch.?.x != null and touch.?.y != null) {
-            const t = touch.?;
-            const i = indexOfFingerNearestTo(t);
-            const f = finger[i];
-            try term.writeAt(keys.toColumn(usize, 
-                @intCast(usize, xToCol(i8, t.x.?) + f.dc)), 
-                @intCast(usize, (yToRow(i8, t.y.?) + f.dr)), "T{d}", .{i});
-        }
-    }
-}
 
 pub fn readEvents() anyerror!void {
     while (true) {
@@ -389,7 +359,7 @@ pub fn readEvents() anyerror!void {
             try term.clear();
             try keys.write();
             try writeTouches();
-            try writeFinger();
+            // try writeFinger();
         }
     }
 }
